@@ -8,6 +8,12 @@
 
 امکانات: نمایش لیست مخاطبین (LazyColumn)، جستجو، افزودن، ویرایش و حذف (CRUD).
 
+| لیست مخاطبین (از سرور) | افزودن مخاطب | حالت آفلاین (سرور خاموش، از Room) |
+|---|---|---|
+| <img src="docs/screenshots/1-list.png" width="240"> | <img src="docs/screenshots/2-add-dialog.png" width="240"> | <img src="docs/screenshots/3-offline.png" width="240"> |
+
+> این تصاویر خودکار در GitHub Actions گرفته می‌شوند: اپ روی شبیه‌ساز اندروید با سرور PHP/MySQL واقعی اجرا می‌شود (فایل `ci/screenshots.sh`).
+
 ---
 
 ## فهرست
