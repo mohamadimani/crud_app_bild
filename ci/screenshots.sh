@@ -45,11 +45,17 @@ adb shell input keyevent KEYCODE_BACK
 sleep 1
 
 echo "== 3) offline"
-sudo pkill -f "php -S" || true
-sleep 1
+# خاموش کردن سرور PHP («[p]» تا pkill خودش را نکشد)
+sudo fuser -k 80/tcp || sudo pkill -f "[p]hp -S" || true
+sleep 2
+if curl -s -m 3 http://127.0.0.1/contacts-api/list.php > /dev/null; then
+  echo "server is still up!"; exit 1
+fi
+echo "server is down ✔"
 adb shell am force-stop "$PKG"
 adb shell am start -W -n "$PKG/.MainActivity"
-sleep 8
+# پیام خطا (Snackbar) حدود ۴ ثانیه می‌ماند؛ زود عکس بگیر
+sleep 2
 shot 3-offline
 
 ls -la "$OUT"
