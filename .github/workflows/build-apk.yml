@@ -62,6 +62,13 @@ jobs:
           name: ContactsApp-apk
           path: android-app/ContactsApp.apk
 
+      # APK با آدرس پیش‌فرض (شبیه‌ساز) برای job اسکرین‌شات
+      - uses: actions/upload-artifact@v4
+        if: ${{ (inputs.api_base_url || vars.API_BASE_URL) == '' }}
+        with:
+          name: emulator-apk
+          path: android-app/ContactsApp.apk
+
       # همیشه آخرین APK در Release به نام «latest» است؛ لینکش ثابت می‌ماند
       - name: Publish to "latest" release
         env:
@@ -74,3 +81,68 @@ jobs:
             --notes "Built from commit ${GITHUB_SHA::7}. Server URL: ${API_BASE_URL:-http://10.0.2.2/contacts-api/ (emulator)}" \
             --prerelease \
             --target "$GITHUB_SHA"
+
+  # اجرای اپ روی شبیه‌ساز اندروید + سرور PHP/MySQL، و گرفتن اسکرین‌شات
+  # اسکرین‌شات‌ها در پوشه‌ی docs/screenshots ریپو ذخیره می‌شوند
+  screenshots:
+    needs: build
+    # فقط وقتی APK با آدرس پیش‌فرض (10.0.2.2) ساخته شده؛ آدرس دیگر روی شبیه‌ساز کار نمی‌کند
+    if: ${{ (inputs.api_base_url || vars.API_BASE_URL) == '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: emulator-apk
+
+      # سرور: MySQL از قبل روی سرور گیت‌هاب نصب است (رمز root: root)
+      - name: Start MySQL + PHP API
+        run: |
+          sudo systemctl start mysql.service
+          mysql -uroot -proot < php-api/database.sql
+          sed -i "s/const DB_PASS = '';/const DB_PASS = 'root';/" php-api/config.php
+          mkdir -p /tmp/www
+          ln -s "$GITHUB_WORKSPACE/php-api" /tmp/www/contacts-api
+          sudo nohup php -S 0.0.0.0:80 -t /tmp/www > /tmp/php.log 2>&1 &
+          sleep 2
+          curl -sf http://127.0.0.1/contacts-api/list.php
+
+      - name: Enable KVM (hardware acceleration for the emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run app on emulator and take screenshots
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash ci/screenshots.sh ContactsApp.apk
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: |
+            screenshots/
+            /tmp/php.log
+
+      - name: Commit screenshots to docs/screenshots
+        run: |
+          git checkout -- php-api/config.php
+          mkdir -p docs/screenshots
+          cp screenshots/*.png docs/screenshots/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots
+          git commit -m "Update app screenshots [skip ci]" || exit 0
+          git pull --rebase
+          git push
