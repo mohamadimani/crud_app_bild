@@ -1,0 +1,76 @@
+# ساخت APK اپ اندروید روی سرورهای گیت‌هاب
+#
+# - با هر push خودکار اجرا می‌شود.
+# - دستی هم می‌شود اجرا کرد (تب Actions ← Build APK ← Run workflow) و آدرس سرور را داد.
+# - APK در بخش Releases (نسخه‌ی «latest») و در Artifacts همان اجرا قرار می‌گیرد.
+#
+# آدرس سرور PHP به این ترتیب انتخاب می‌شود:
+#   ۱. مقداری که موقع اجرای دستی وارد شده
+#   ۲. متغیر ریپو API_BASE_URL (Settings ← Secrets and variables ← Actions ← Variables)
+#   ۳. پیش‌فرض: http://10.0.2.2/contacts-api/ (فقط برای شبیه‌ساز)
+
+name: Build APK
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "آدرس سرور PHP با / در آخر، مثلاً http://192.168.1.5/contacts-api/"
+        required: false
+        default: ""
+
+permissions:
+  contents: write # برای ساختن Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # Gradle با نسخه‌ی مشخص (پروژه فایل gradlew ندارد)
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Build debug APK
+        env:
+          API_BASE_URL: ${{ inputs.api_base_url || vars.API_BASE_URL }}
+        run: |
+          if [ -n "$API_BASE_URL" ]; then
+            echo "Server URL: $API_BASE_URL"
+            gradle assembleDebug --no-daemon "-PapiBaseUrl=$API_BASE_URL"
+          else
+            echo "Server URL: default (emulator)"
+            gradle assembleDebug --no-daemon
+          fi
+          cp app/build/outputs/apk/debug/app-debug.apk ContactsApp.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ContactsApp-apk
+          path: android-app/ContactsApp.apk
+
+      # همیشه آخرین APK در Release به نام «latest» است؛ لینکش ثابت می‌ماند
+      - name: Publish to "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          API_BASE_URL: ${{ inputs.api_base_url || vars.API_BASE_URL }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest ContactsApp.apk \
+            --title "ContactsApp - latest build" \
+            --notes "Built from commit ${GITHUB_SHA::7}. Server URL: ${API_BASE_URL:-http://10.0.2.2/contacts-api/ (emulator)}" \
+            --prerelease \
+            --target "$GITHUB_SHA"
